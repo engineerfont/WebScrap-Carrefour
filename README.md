@@ -19,9 +19,9 @@ Extracció automatitzada de dades del web de Carrefour mitjançant Selenium
 
 ## 📍 Tecnologies utilitzades
 
-Python 3.8+  ➡️  Llenguatge
-Selenium     ➡️  Navegació
-Pandas       ➡️  Exportació i manipulació
+- Python 3.8+  ➡️  Llenguatge
+- Selenium     ➡️  Navegació
+- Pandas       ➡️  Exportació i manipulació
 
 ## ⚙️ Instal·lació
 
