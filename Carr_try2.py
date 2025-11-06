@@ -7,6 +7,7 @@ import pandas as pd
 import time
 import re
 import random
+from datetime import datetime
 
 # =============================
 # CONFIG
@@ -33,13 +34,16 @@ RETRIES = 3
 # =============================
 
 def slugify(url):
-    """Generar noms de CSV"""
-    name = url.split("/supermercado/")[-1].replace("/", "_")
-    return re.sub(r"[^a-zA-Z0-9_]", "", name)
-
+    """Genera el nombre de la categoría a partir de la URL (p.ej. 'bebe' o 'frescos')."""
+    try:
+        part = url.split("/supermercado/")[1].split("/")[0]
+        part = re.sub(r"[^a-zA-Z0-9_-]", "", part)
+        return part.strip().lower()
+    except:
+        return "categoria"
 
 def wait_human(min_s=1, max_s=2.5):
-    """Evitar sobrecarregar servidor → Pausa aleatoria."""
+    """Evita sobrecargar el servidor → pausa aleatoria."""
     time.sleep(random.uniform(min_s, max_s))
 
 
@@ -48,14 +52,16 @@ def wait_human(min_s=1, max_s=2.5):
 # =============================
 
 def init_driver():
-    """Crea i configura el navegador controlat per Selenium"""
+    """Crea y configura el navegador controlado por Selenium."""
     options = Options()
     options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/122.0.0.0 Safari/537.36"
     )
-    return webdriver.Chrome(options=options)
+    driver = webdriver.Chrome(options=options)
+    driver.maximize_window()
+    return driver
 
 
 # =============================
@@ -63,11 +69,11 @@ def init_driver():
 # =============================
 
 def close_popups(driver):
-    """Tancar cookies i altres pop-ups comuns."""
+    """Cierra cookies y pop-ups comunes."""
     wait_human()
     try:
         driver.find_element(By.ID, "onetrust-accept-btn-handler").click()
-        print("✅ Cookies tancades")
+        print("✅ Cookies aceptadas")
     except:
         pass
 
@@ -95,7 +101,7 @@ def close_popups(driver):
 # =============================
 
 def scroll_until_done(driver, delay=0.4):
-    """Desplaçament per carregar més productes (lazy loading)."""
+    """Desplazamiento para cargar más productos (lazy loading)."""
     last_count = 0
     while True:
         driver.execute_script("window.scrollBy(0, 2000);")
@@ -107,20 +113,17 @@ def scroll_until_done(driver, delay=0.4):
 
 
 # =============================
-# PRODUCT EXTRACTION (ADAPTADA)
+# PRODUCT EXTRACTION
 # =============================
 
 def read_products_from_page(driver):
-    """
-    Llegeix tots els productes visibles a la pàgina actual.
-    Adaptat per funcionar amb l'estructura del Carrefour.
-    """
+    """Lee todos los productos visibles en la página actual."""
     try:
         WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div.product-card-list ul.product-card-list__list"))
         )
     except:
-        print("⚠️ No s'ha trobat la llista principal de productes.")
+        print("⚠️ No se encontró la lista principal de productos.")
         return []
 
     wait_human(0.8, 1.2)
@@ -129,7 +132,6 @@ def read_products_from_page(driver):
 
     for lst in lists:
         try:
-            # Ometre les llistes ocultes
             if "display: none" in (lst.get_attribute("style") or ""):
                 continue
 
@@ -139,22 +141,18 @@ def read_products_from_page(driver):
                     name = c.find_element(By.CSS_SELECTOR, ".product-card__title").text.strip()
                 except:
                     name = ""
-
                 try:
                     price = c.find_element(By.CSS_SELECTOR, ".product-card__price").text.strip()
                 except:
                     price = ""
-
                 try:
                     price_unit = c.find_element(By.CSS_SELECTOR, ".product-card__price-per-unit").text.strip()
                 except:
                     price_unit = ""
-
                 try:
                     offer = ", ".join([o.text.strip() for o in c.find_elements(By.CSS_SELECTOR, ".badge__name")])
                 except:
                     offer = ""
-
                 if name or price:
                     items.append({
                         "product_name": name,
@@ -165,7 +163,7 @@ def read_products_from_page(driver):
         except:
             continue
 
-    print(f"✅ {len(items)} productes trobats en la pàgina actual")
+    print(f"✅ {len(items)} productos encontrados en la página actual")
     return items
 
 
@@ -174,65 +172,57 @@ def read_products_from_page(driver):
 # =============================
 
 def scrap_category(driver, url):
-    """Executa el procés complet sobre una categoria."""
+    """Ejecuta el scraping completo sobre una categoría."""
     offset = 0
     page_num = 0
     items = []
 
     while page_num < MAX_PAGES:
-
         page_url = f"{url}?offset={offset}"
-        print(f"\n➡ Accedeix: {page_url}")
+        print(f"\n➡ Accediendo a: {page_url}")
 
-        # Reintents si falla
         for attempt in range(RETRIES):
             try:
                 driver.get(page_url)
                 break
             except Exception as e:
-                print(f"⚠ Error cargant web → reintent {attempt+1}/{RETRIES}")
+                print(f"⚠️ Error cargando página → reintento {attempt+1}/{RETRIES}")
                 wait_human()
         else:
-            print("❌ No s'ha pogut carregar la web → cancelada")
+            print("❌ No se pudo cargar la página → cancelado")
             return items
 
         wait_human()
 
-        # Pop-ups nomes primer cop
         if page_num == 0:
             close_popups(driver)
 
-        # Espera a que carreguin productes
         try:
             WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.product-card__parent"))
             )
         except:
-            print("⚠ No hi han productes → fi")
+            print("⚠️ No hay productos → fin de la categoría")
             break
 
-        # Scroll per carregar tot
         scroll_until_done(driver)
 
-        # Llegir productes de la pàgina
         page_items = read_products_from_page(driver)
         for p in page_items:
             p["category_url"] = url
         items.extend(page_items)
 
-        print(f"📦 Total acumulat: {len(items)} productes")
+        print(f"📦 Total acumulado: {len(items)} productos")
 
-        # Detectar última pàgina
         try:
             next_btn = driver.find_element(By.CSS_SELECTOR, "span.pagination__next")
             if "pagination__next--disabled" in next_btn.get_attribute("class"):
-                print("✅ Última pàgina assolida")
+                print("✅ Última página alcanzada")
                 break
         except:
-            print("⚠ No s'ha detectat boto → fi")
+            print("⚠️ No se detectó botón de siguiente → fin")
             break
 
-        # Salt a la següent pàgina
         offset += PAGE_SIZE
         page_num += 1
         wait_human()
@@ -245,23 +235,25 @@ def scrap_category(driver, url):
 # =============================
 
 def scrap_all():
-    """Bucle principal: revisar totes les URLs."""
+    """Bucle principal: recorre todas las URLs y guarda un CSV por categoría."""
     driver = init_driver()
 
     for url in URLS:
-        print(f"\n===== INICIANT SCRAP: {url} =====")
+        print(f"\n===== INICIANDO SCRAP: {url} =====")
         items = scrap_category(driver, url)
 
         if items:
             df = pd.DataFrame(items)
-            filename = f"carrefour_{slugify(url)}.csv"
+            category_name = slugify(url)
+            date_str = datetime.now().strftime("%Y%m%d")
+            filename = f"carrefour_{category_name}_{date_str}.csv"
             df.to_csv(filename, index=False, encoding="utf-8-sig")
-            print(f"✅ CSV generat: {filename} (Total: {len(df)})")
+            print(f"💾 CSV generado: {filename} (Total: {len(df)})")
         else:
-            print("⚠ No s'ha generat CSV → sense productes")
+            print("⚠️ No se ha generado CSV → sin productos")
 
     driver.quit()
-    print("\n✅ SCRAP COMPLETAT")
+    print("\n✅ SCRAP COMPLETADO")
 
 
 if __name__ == "__main__":
