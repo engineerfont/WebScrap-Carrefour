@@ -24,7 +24,6 @@ URLS = [
     "https://www.carrefour.es/supermercado/parafarmacia/cat20008/c"
 ]
 
-PAGE_SIZE = 24
 MAX_PAGES = 50
 RETRIES = 3
 
@@ -105,7 +104,7 @@ def scroll_until_done(driver, delay=0.4):
     last_count = 0
     while True:
         driver.execute_script("window.scrollBy(0, 2000);")
-        wait_human()
+        wait_human(0.3, 0.7)
         new_count = len(driver.find_elements(By.CSS_SELECTOR, "div.product-card__parent"))
         if new_count == last_count:
             break
@@ -168,64 +167,61 @@ def read_products_from_page(driver):
 
 
 # =============================
-# CATEGORY SCRAPING
+# CATEGORY SCRAPING (MEJORADA)
 # =============================
 
 def scrap_category(driver, url):
-    """Ejecuta el scraping completo sobre una categoría."""
-    offset = 0
-    page_num = 0
+    """Ejecuta el scraping completo sobre una categoría usando clics en 'siguiente'."""
     items = []
+    page_num = 1
 
-    while page_num < MAX_PAGES:
-        page_url = f"{url}?offset={offset}"
-        print(f"\n➡ Accediendo a: {page_url}")
+    print(f"\n➡ Accediendo a categoría: {url}")
+    driver.get(url)
+    wait_human()
+    close_popups(driver)
 
-        for attempt in range(RETRIES):
-            try:
-                driver.get(page_url)
-                break
-            except Exception as e:
-                print(f"⚠️ Error cargando página → reintento {attempt+1}/{RETRIES}")
-                wait_human()
-        else:
-            print("❌ No se pudo cargar la página → cancelado")
-            return items
+    while page_num <= MAX_PAGES:
+        print(f"\n📄 Leyendo página {page_num}...")
 
-        wait_human()
-
-        if page_num == 0:
-            close_popups(driver)
-
+        # Esperar productos
         try:
             WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.product-card__parent"))
             )
         except:
-            print("⚠️ No hay productos → fin de la categoría")
+            print("⚠️ No hay productos visibles — fin de categoría.")
             break
 
         scroll_until_done(driver)
-
         page_items = read_products_from_page(driver)
         for p in page_items:
             p["category_url"] = url
         items.extend(page_items)
-
         print(f"📦 Total acumulado: {len(items)} productos")
 
+        # Mostrar info de paginación (opcional)
+        try:
+            info_text = driver.find_element(By.CSS_SELECTOR, ".pagination__main").text
+            print(f"📖 {info_text.strip()}")
+        except:
+            pass
+
+        # Buscar botón "siguiente página"
         try:
             next_btn = driver.find_element(By.CSS_SELECTOR, "span.pagination__next")
-            if "pagination__next--disabled" in next_btn.get_attribute("class"):
-                print("✅ Última página alcanzada")
+            classes = next_btn.get_attribute("class") or ""
+            if "pagination__next--disabled" in classes:
+                print("✅ Última página alcanzada.")
                 break
-        except:
-            print("⚠️ No se detectó botón de siguiente → fin")
-            break
 
-        offset += PAGE_SIZE
-        page_num += 1
-        wait_human()
+            # Hacer clic en el botón "Siguiente"
+            driver.execute_script("arguments[0].click();", next_btn)
+            print("➡ Clic en 'Siguiente página'")
+            page_num += 1
+            wait_human(2, 3)
+        except:
+            print("⚠️ No se encontró el botón 'Siguiente' — fin de la categoría.")
+            break
 
     return items
 
