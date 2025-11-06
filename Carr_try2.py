@@ -10,7 +10,6 @@ import random
 
 # =============================
 # CONFIG
-# Llista de URLs d'on s'extraura info
 # =============================
 
 URLS = [
@@ -24,9 +23,10 @@ URLS = [
     "https://www.carrefour.es/supermercado/parafarmacia/cat20008/c"
 ]
 
-PAGE_SIZE = 24  # Nombre de productes per pàgina
-MAX_PAGES = 50  #Límit de pàgines a recórrer per evitar loops infinits.
-RETRIES = 3     # Nombre de reintents quan una pàgina no carrega
+PAGE_SIZE = 24
+MAX_PAGES = 50
+RETRIES = 3
+
 
 # =============================
 # UTILS
@@ -48,16 +48,13 @@ def wait_human(min_s=1, max_s=2.5):
 # =============================
 
 def init_driver():
-    """
-    Crea i configura el navegador controlat per Selenium
-    """
+    """Crea i configura el navegador controlat per Selenium"""
     options = Options()
     options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/122.0.0.0 Safari/537.36"
     )
-
     return webdriver.Chrome(options=options)
 
 
@@ -98,10 +95,7 @@ def close_popups(driver):
 # =============================
 
 def scroll_until_done(driver, delay=0.4):
-    """
-    Desplaçament per carregar més productes (lazy loading).
-    Si no hi han nous productes → parar.
-    """
+    """Desplaçament per carregar més productes (lazy loading)."""
     last_count = 0
     while True:
         driver.execute_script("window.scrollBy(0, 2000);")
@@ -113,47 +107,66 @@ def scroll_until_done(driver, delay=0.4):
 
 
 # =============================
-# PRODUCT EXTRACTION
+# PRODUCT EXTRACTION (ADAPTADA)
 # =============================
 
-def extract_product(card, url):
-    """Extreu dades d'un producte individual.
-       Si el producte forma part de la seccio ofertes  → ignorar.
+def read_products_from_page(driver):
     """
-
-    # Ignorar productes dins de seccions ‘product-offers’
+    Llegeix tots els productes visibles a la pàgina actual.
+    Adaptat per funcionar amb l'estructura del Carrefour.
+    """
     try:
-        card.find_element(By.XPATH, ".ancestor::div[contains(@class, 'product-offers')]")
-        return None   # ⬅ producte NO vàlid
-    except:
-        pass    # no està dins → continua
-
-    def safe(selector):
-        """Lectura segura de text sense trencar camp."""
-        try:
-            return card.find_element(By.CSS_SELECTOR, selector).text.strip()
-        except:
-            return ""
-
-    name = safe(".product-card__title")
-    price = safe(".product-card__price")
-    price_unit = safe(".product-card__price-per-unit")
-
-    offers = ", ".join([
-        o.text.strip()
-        for o in card.find_elements(
-            By.CSS_SELECTOR,
-            ".product-card__badges-container-promotions .badge__name"
+        WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.product-card-list ul.product-card-list__list"))
         )
-    ])
+    except:
+        print("⚠️ No s'ha trobat la llista principal de productes.")
+        return []
 
-    return {
-        "category_url": url,
-        "name": name,
-        "price": price,
-        "price_unit": price_unit,
-        "offer": offers
-    }
+    wait_human(0.8, 1.2)
+    lists = driver.find_elements(By.CSS_SELECTOR, "div.product-card-list")
+    items = []
+
+    for lst in lists:
+        try:
+            # Ometre les llistes ocultes
+            if "display: none" in (lst.get_attribute("style") or ""):
+                continue
+
+            cards = lst.find_elements(By.CSS_SELECTOR, "div.product-card__parent")
+            for c in cards:
+                try:
+                    name = c.find_element(By.CSS_SELECTOR, ".product-card__title").text.strip()
+                except:
+                    name = ""
+
+                try:
+                    price = c.find_element(By.CSS_SELECTOR, ".product-card__price").text.strip()
+                except:
+                    price = ""
+
+                try:
+                    price_unit = c.find_element(By.CSS_SELECTOR, ".product-card__price-per-unit").text.strip()
+                except:
+                    price_unit = ""
+
+                try:
+                    offer = ", ".join([o.text.strip() for o in c.find_elements(By.CSS_SELECTOR, ".badge__name")])
+                except:
+                    offer = ""
+
+                if name or price:
+                    items.append({
+                        "product_name": name,
+                        "price": price,
+                        "price_unit": price_unit,
+                        "offer": offer
+                    })
+        except:
+            continue
+
+    print(f"✅ {len(items)} productes trobats en la pàgina actual")
+    return items
 
 
 # =============================
@@ -201,12 +214,13 @@ def scrap_category(driver, url):
         # Scroll per carregar tot
         scroll_until_done(driver)
 
-        products = driver.find_elements(By.CSS_SELECTOR, "div.product-card__parent")
-        print(f"📦 Productes detectads en la web {page_num+1}: {len(products)}")
+        # Llegir productes de la pàgina
+        page_items = read_products_from_page(driver)
+        for p in page_items:
+            p["category_url"] = url
+        items.extend(page_items)
 
-        # Extreure cada producte
-        for card in products:
-            items.append(extract_product(card, url))
+        print(f"📦 Total acumulat: {len(items)} productes")
 
         # Detectar última pàgina
         try:
@@ -231,7 +245,7 @@ def scrap_category(driver, url):
 # =============================
 
 def scrap_all():
-    """Bucle principal: revisar todes les URLs."""
+    """Bucle principal: revisar totes les URLs."""
     driver = init_driver()
 
     for url in URLS:
