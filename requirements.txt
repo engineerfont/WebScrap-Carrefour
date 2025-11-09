@@ -1,3 +1,12 @@
-selenium
-pandas
-webdriver-manager
+selenium 
+# Control del navegador (Chrome) i execució de tasques d’scraping sobre contingut dinàmic.
+pandas 
+# Emmagatzematge i exportació de dades a CSV
+re 
+# Expressions regulars per netejar cadenes i generar noms de fitxers.
+random 
+# Generació de valors aleatoris per crear temps de pausa indeterminats.
+time 
+# Complementa la llibreria anterior per crear aquestes pauses de durada aleatòria.
+datetime
+# Generació de la data actual per registrar adequadament el dia d’adquisició de les dades.
